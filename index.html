@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real Estate Activity Tracker</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons@latest/tabler-icons.min.css">
+  <style>
+    :root {
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      --color-text-primary: #24292f;
+      --color-text-secondary: #57606a;
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f6f8fa;
+      --color-border-secondary: #d0d7de;
+      --color-border-tertiary: #eaeef2;
+      --border-radius-md: 6px;
+      --border-radius-lg: 8px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-text-primary: #e6edf3;
+        --color-text-secondary: #8b949e;
+        --color-background-primary: #0d1117;
+        --color-background-secondary: #161b22;
+        --color-border-secondary: #30363d;
+        --color-border-tertiary: #21262d;
+      }
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:var(--font-sans)}
+    .app{padding:1.5rem 1rem;max-width:900px;margin:0 auto}
+    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:12px}
+    .header-left h1{font-size:22px;font-weight:500;color:var(--color-text-primary)}
+    .header-left p{font-size:13px;color:var(--color-text-secondary);margin-top:2px}
+    .agent-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .agent-row input{padding:6px 10px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:14px;background:var(--color-background-primary);color:var(--color-text-primary);width:180px}
+    .date-row{display:flex;align-items:center;gap:8px}
+    .date-row input[type=date]{padding:6px 10px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);font-size:14px;background:var(--color-background-primary);color:var(--color-text-primary)}
+    .score-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.5rem}
+    .score-card{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:12px 14px}
+    .score-card .label{font-size:12px;color:var(--color-text-secondary);margin-bottom:4px}
+    .score-card .value{font-size:26px;font-weight:500;color:var(--color-text-primary)}
+    .score-card.grand .value{color:#185FA5}
+    .section{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);margin-bottom:1rem;overflow:hidden}
+    .section-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--color-background-secondary);cursor:pointer;user-select:none}
+    .section-header-left{display:flex;align-items:center;gap:8px}
+    .section-header-left i{font-size:18px;color:var(--color-text-secondary)}
+    .section-title{font-size:14px;font-weight:500;color:var(--color-text-primary)}
+    .section-pts{font-size:12px;color:var(--color-text-secondary)}
+    .section-score{font-size:14px;font-weight:500;color:#185FA5}
+    .chevron{font-size:16px;color:var(--color-text-secondary);transition:transform 0.2s}
+    .chevron.open{transform:rotate(180deg)}
+    .activity-list{display:none;padding:8px 0}
+    .activity-list.open{display:block}
+    .activity-row{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-top:0.5px solid var(--color-border-tertiary)}
+    .activity-row:first-child{border-top:none}
+    .act-left{flex:1;font-size:13px;color:var(--color-text-primary);line-height:1.4}
+    .act-pts{font-size:12px;color:var(--color-text-secondary);margin-left:8px;white-space:nowrap}
+    .counter{display:flex;align-items:center;gap:6px;margin-left:12px}
+    .counter button{width:28px;height:28px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+    .counter button:hover{background:var(--color-background-secondary)}
+    .counter span{min-width:22px;text-align:center;font-size:14px;font-weight:500;color:var(--color-text-primary)}
+    .actions{display:flex;gap:8px;margin-top:1rem;flex-wrap:wrap}
+    .btn{padding:8px 16px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);font-size:13px;cursor:pointer}
+    .btn:hover{background:var(--color-background-secondary)}
+    .btn.primary{background:#185FA5;color:#fff;border-color:#185FA5}
+    .btn.primary:hover{background:#0C447C}
+    .btn.danger{color:#A32D2D;border-color:#A32D2D}
+    .btn.danger:hover{background:var(--color-background-secondary)}
+    .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#185FA5;color:#fff;padding:10px 20px;border-radius:var(--border-radius-md);font-size:13px;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:999}
+    .toast.show{opacity:1}
+    .history-section{margin-top:1.5rem}
+    .history-section h2{font-size:16px;font-weight:500;color:var(--color-text-primary);margin-bottom:10px}
+    .history-table{width:100%;border-collapse:collapse;font-size:13px}
+    .history-table th{text-align:left;padding:8px 10px;background:var(--color-background-secondary);color:var(--color-text-secondary);font-weight:500;border-bottom:0.5px solid var(--color-border-tertiary)}
+    .history-table td{padding:8px 10px;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-primary)}
+    .history-table tr:last-child td{border-bottom:none}
+    .empty-state{font-size:13px;color:var(--color-text-secondary);padding:12px 0}
+    .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:var(--border-radius-md);background:#E6F1FB;color:#185FA5;font-weight:500}
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden">Real estate activity tracker — log daily activities and earn points</h2>
+  <div class="header">
+    <div class="header-left">
+      <h1>Activity Tracker</h1>
+      <p>Log your activities and earn points daily</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+      <div class="agent-row">
+        <i class="ti ti-user" style="font-size:16px;color:var(--color-text-secondary)" aria-hidden="true"></i>
+        <input type="text" id="agentName" placeholder="Your name" />
+      </div>
+      <div class="date-row">
+        <i class="ti ti-calendar" style="font-size:16px;color:var(--color-text-secondary)" aria-hidden="true"></i>
+        <input type="date" id="trackDate" />
+      </div>
+    </div>
+  </div>
+
+  <div class="score-bar" id="scoreBar"></div>
+
+  <div id="sections"></div>
+
+  <div class="actions">
+    <button class="btn primary" onclick="saveEntry()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Save today's entry</button>
+    <button class="btn" onclick="resetForm()"><i class="ti ti-refresh" aria-hidden="true"></i> Reset</button>
+  </div>
+
+  <div class="history-section">
+    <h2>Team history</h2>
+    <div id="historyContainer"><p class="empty-state">No entries saved yet.</p></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATEGORIES = [
+  {
+    id:"get_known", label:"Get known", icon:"ti-map-pin",
+    items:[
+      {id:"business_card",label:"Hand out a business card",pts:1},
+      {id:"knock_door",label:"Knock on a door",pts:2},
+      {id:"open_house",label:"Host an open house",pts:2},
+      {id:"open_house_followup",label:"Follow up call to open house attendees",pts:1},
+      {id:"floor_time",label:"Sit floor time",pts:1},
+      {id:"attend_meeting",label:"Attend a meeting (org, charity, club, HOA)",pts:1},
+      {id:"meet_provider",label:"Meet an industry service provider",pts:1},
+      {id:"join_org",label:"Join a professional organization",pts:1},
+      {id:"face_to_face",label:"Have a face-to-face meeting",pts:2},
+      {id:"local_biz",label:"Visit local businesses",pts:1},
+    ]
+  },
+  {
+    id:"keep_touch", label:"Keep in touch", icon:"ti-phone",
+    items:[
+      {id:"call_soi",label:"Call your SOI",pts:1},
+      {id:"enewsletter",label:"Send e-newsletter",pts:1},
+      {id:"holiday_card",label:"Send holiday card",pts:1},
+      {id:"host_event",label:"Host an event",pts:5},
+    ]
+  },
+  {
+    id:"grow_referral", label:"Grow referral base", icon:"ti-users",
+    items:[
+      {id:"add_name",label:"Add a name to your database (SOI)",pts:1},
+      {id:"update_db",label:"Update database info (email, cell, etc.)",pts:1},
+    ]
+  },
+  {
+    id:"engage_clients", label:"Engage clients", icon:"ti-home",
+    items:[
+      {id:"buyer_consult",label:"Conduct buyer consultation",pts:3},
+      {id:"homebuying_seminar",label:"Host a homebuying seminar",pts:3},
+      {id:"buyer_tour",label:"Conduct buyer tour",pts:1},
+      {id:"write_contract",label:"Write a contract",pts:3},
+      {id:"listing_appt",label:"Attend a listing appointment",pts:5},
+      {id:"list_house",label:"List a house",pts:5},
+      {id:"accepted_contract",label:"Get an accepted contract",pts:5},
+      {id:"closing",label:"Have a closing",pts:5},
+      {id:"outgoing_referral",label:"Send an outgoing referral",pts:5},
+      {id:"lease",label:"Lease a house/apartment",pts:5},
+      {id:"social_post",label:"Post on social media",pts:2},
+      {id:"social_video",label:"Create a video on social media",pts:1},
+      {id:"upload_contacts",label:"Upload contacts to Clients for Life",pts:1},
+      {id:"price_reduction",label:"Get a price reduction",pts:3},
+      {id:"listing_extension",label:"Get a listing extension",pts:3},
+    ]
+  },
+  {
+    id:"passive_income", label:"Create passive income", icon:"ti-coin",
+    items:[
+      {id:"referral_reward",label:"Give referral reward name to your manager",pts:2},
+      {id:"agent_onboard",label:"Have the agent onboard and join CB",pts:4},
+    ]
+  },
+  {
+    id:"become_expert", label:"Become an expert", icon:"ti-school",
+    items:[
+      {id:"office_meeting",label:"Attend office meeting",pts:1},
+      {id:"market_report",label:"Create neighborhood market report",pts:1},
+      {id:"cma",label:"Create CMA",pts:1},
+      {id:"buyer_agreement",label:"Fill out buyer representation agreement & disclosures",pts:2},
+      {id:"listing_agreement",label:"Fill out listing agreement & disclosures",pts:2},
+      {id:"copilot_summary",label:"Use Copilot to summarize market report",pts:4},
+      {id:"call_expired",label:"Call expired listings",pts:1},
+      {id:"call_fsbo",label:"Call FSBO",pts:1},
+    ]
+  },
+  {
+    id:"market_yourself", label:"Market yourself", icon:"ti-speakerphone",
+    items:[
+      {id:"make_video",label:"Make a video",pts:2},
+      {id:"ask_referral",label:"Ask for a referral",pts:2},
+      {id:"re_social",label:"Post something about real estate on social media",pts:1},
+      {id:"testimonial",label:"Get a testimonial",pts:1},
+      {id:"listing_concierge",label:"Place a Listing Concierge order",pts:2},
+      {id:"lc_sold_card",label:"Send out LC sold card and eblast",pts:1},
+    ]
+  },
+  {
+    id:"balance", label:"Balance / control your career", icon:"ti-clock",
+    items:[
+      {id:"timeblock",label:"Timeblock 2 hours to work on your business",pts:3},
+      {id:"set_goals",label:"Set goals — daily and/or weekly",pts:1},
+      {id:"biz_plan",label:"Do business/marketing plan",pts:2},
+      {id:"review_biz_plan",label:"Update/review business plan",pts:1},
+      {id:"marketing_calendar",label:"Create marketing calendar",pts:1},
+      {id:"podcast",label:"Listen to motivational or real estate podcast",pts:1},
+    ]
+  },
+  {
+    id:"invest_relationships", label:"Invest in relationships", icon:"ti-heart",
+    items:[
+      {id:"handwritten_note",label:"Send a handwritten note",pts:1},
+      {id:"thank_you_card",label:"Send someone a thank you card",pts:1},
+      {id:"positive_email",label:"Send someone a positive email",pts:1},
+      {id:"lunch",label:"Take a contact to lunch",pts:2},
+    ]
+  },
+  {
+    id:"full_service", label:"Be full service", icon:"ti-award",
+    items:[
+      {id:"buyer_preapproved",label:"Get a buyer pre-approved with GRA",pts:2},
+      {id:"new_listing_title",label:"New listing to CB title partner",pts:2},
+      {id:"home_warranty",label:"Order a new home warranty",pts:2},
+      {id:"seller_coverage",label:"Add seller coverage",pts:2},
+      {id:"close_buyer_gra",label:"Close buyer controlled sale with GRA",pts:4},
+      {id:"close_buyer_title",label:"Close buyer controlled sale with title partner",pts:4},
+    ]
+  },
+];
+
+const counts = {};
+CATEGORIES.forEach(cat => cat.items.forEach(item => { counts[item.id] = 0; }));
+
+function getToday() {
+  return new Date().toISOString().slice(0,10);
+}
+
+document.getElementById('trackDate').value = getToday();
+
+function calcCatTotal(cat) {
+  return cat.items.reduce((s,item) => s + counts[item.id]*item.pts, 0);
+}
+function calcGrandTotal() {
+  return CATEGORIES.reduce((s,cat) => s + calcCatTotal(cat), 0);
+}
+
+function updateScores() {
+  const bar = document.getElementById('scoreBar');
+  bar.innerHTML = '';
+  const grand = calcGrandTotal();
+  const grandCard = document.createElement('div');
+  grandCard.className = 'score-card grand';
+  grandCard.innerHTML = `<div class="label">Grand total</div><div class="value">${grand}</div>`;
+  bar.appendChild(grandCard);
+  CATEGORIES.forEach(cat => {
+    const pts = calcCatTotal(cat);
+    if(pts > 0) {
+      const c = document.createElement('div');
+      c.className = 'score-card';
+      c.innerHTML = `<div class="label" style="font-size:11px">${cat.label}</div><div class="value" style="font-size:18px">${pts}</div>`;
+      bar.appendChild(c);
+    }
+  });
+}
+
+function buildSections() {
+  const container = document.getElementById('sections');
+  CATEGORIES.forEach(cat => {
+    const sec = document.createElement('div');
+    sec.className = 'section';
+    sec.id = 'sec_'+cat.id;
+
+    const header = document.createElement('div');
+    header.className = 'section-header';
+    header.innerHTML = `
+      <div class="section-header-left">
+        <i class="ti ${cat.icon}" aria-hidden="true"></i>
+        <span class="section-title">${cat.label}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="section-score" id="cat_score_${cat.id}">0 pts</span>
+        <i class="ti ti-chevron-down chevron" id="chev_${cat.id}" aria-hidden="true"></i>
+      </div>`;
+    header.onclick = () => {
+      const list = document.getElementById('list_'+cat.id);
+      const chev = document.getElementById('chev_'+cat.id);
+      list.classList.toggle('open');
+      chev.classList.toggle('open');
+    };
+
+    const list = document.createElement('div');
+    list.className = 'activity-list';
+    list.id = 'list_'+cat.id;
+
+    cat.items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'activity-row';
+      row.innerHTML = `
+        <span class="act-left">${item.label}</span>
+        <span class="act-pts">${item.pts} pt${item.pts!==1?'s':''}</span>
+        <div class="counter">
+          <button onclick="change('${item.id}',-1,'${cat.id}')" aria-label="decrease">−</button>
+          <span id="cnt_${item.id}">0</span>
+          <button onclick="change('${item.id}',1,'${cat.id}')" aria-label="increase">+</button>
+        </div>`;
+      list.appendChild(row);
+    });
+
+    sec.appendChild(header);
+    sec.appendChild(list);
+    container.appendChild(sec);
+  });
+}
+
+function change(id, delta, catId) {
+  counts[id] = Math.max(0, (counts[id]||0) + delta);
+  document.getElementById('cnt_'+id).textContent = counts[id];
+  const cat = CATEGORIES.find(c=>c.id===catId);
+  document.getElementById('cat_score_'+catId).textContent = calcCatTotal(cat)+' pts';
+  updateScores();
+}
+
+async function saveEntry() {
+  const agent = document.getElementById('agentName').value.trim() || 'Unknown';
+  const date = document.getElementById('trackDate').value;
+  const grand = calcGrandTotal();
+  if(grand === 0) { showToast('No activities logged yet!'); return; }
+
+  const catBreakdown = {};
+  CATEGORIES.forEach(cat => {
+    const pts = calcCatTotal(cat);
+    if(pts > 0) catBreakdown[cat.label] = pts;
+  });
+
+  const entry = { agent, date, grand, catBreakdown, ts: Date.now() };
+  const entries = JSON.parse(localStorage.getItem('entries') || '[]');
+  entries.push(entry);
+  localStorage.setItem('entries', JSON.stringify(entries));
+  showToast('Entry saved!');
+  loadHistory();
+  resetForm();
+}
+
+function resetForm() {
+  CATEGORIES.forEach(cat => cat.items.forEach(item => {
+    counts[item.id] = 0;
+    const el = document.getElementById('cnt_'+item.id);
+    if(el) el.textContent = '0';
+    const scoreEl = document.getElementById('cat_score_'+cat.id);
+    if(scoreEl) scoreEl.textContent = '0 pts';
+  }));
+  updateScores();
+}
+
+function loadHistory() {
+  const container = document.getElementById('historyContainer');
+  try {
+    const entries = JSON.parse(localStorage.getItem('entries') || '[]');
+    if(!entries || entries.length === 0) {
+      container.innerHTML = '<p class="empty-state">No entries saved yet.</p>';
+      return;
+    }
+    entries.sort((a,b) => (b.ts||0) - (a.ts||0));
+
+    const agentTotals = {};
+    entries.forEach(e => {
+      if(!agentTotals[e.agent]) agentTotals[e.agent] = 0;
+      agentTotals[e.agent] += e.grand;
+    });
+
+    let html = '';
+
+    if(Object.keys(agentTotals).length > 1) {
+      html += '<div style="margin-bottom:1rem"><h3 style="font-size:14px;font-weight:500;color:var(--color-text-secondary);margin-bottom:8px">Team leaderboard</h3><div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      const sorted = Object.entries(agentTotals).sort((a,b)=>b[1]-a[1]);
+      sorted.forEach(([name, total], i) => {
+        const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+        html += `<div class="score-card" style="min-width:120px"><div class="label">${medal} ${name}</div><div class="value" style="font-size:20px">${total}</div></div>`;
+      });
+      html += '</div></div>';
+    }
+
+    html += '<table class="history-table"><thead><tr><th>Date</th><th>Agent</th><th>Top categories</th><th>Total pts</th></tr></thead><tbody>';
+    entries.slice(0, 50).forEach(e => {
+      const top = Object.entries(e.catBreakdown||{}).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`<span class="badge">${k}: ${v}</span>`).join(' ');
+      html += `<tr><td>${e.date}</td><td>${e.agent}</td><td>${top}</td><td style="font-weight:500;color:#185FA5">${e.grand}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<p class="empty-state">Could not load history.</p>';
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+buildSections();
+updateScores();
+loadHistory();
+</script>
+
+</body>
+</html>

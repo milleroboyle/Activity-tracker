@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Real Estate Activity Tracker</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons@latest/tabler-icons.min.css">
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.5.0/firebase-database-compat.js"></script>
   <style>
     :root {
       --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -71,9 +71,10 @@
     .history-table tr:last-child td{border-bottom:none}
     .empty-state{font-size:13px;color:var(--color-text-secondary);padding:12px 0}
     .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:var(--border-radius-md);background:#E6F1FB;color:#185FA5;font-weight:600}
-    .status-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;animation:pulse 2s infinite}
-    .status-indicator.online{background-color:#10b981;animation:none}
+    .status-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+    .status-indicator.online{background-color:#10b981}
     .status-indicator.offline{background-color:#ef4444}
+    .status-indicator.connecting{background-color:#f59e0b;animation:pulse 1.5s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
   </style>
 </head>
@@ -87,7 +88,7 @@
       <p>Log your activities and earn points daily</p>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-      <div style="font-size:12px;color:var(--color-text-secondary)"><span class="status-indicator" id="statusIndicator"></span><span id="statusText">Starting...</span></div>
+      <div style="font-size:12px;color:var(--color-text-secondary)"><span class="status-indicator connecting" id="statusIndicator"></span><span id="statusText">Connecting...</span></div>
       <div class="agent-row">
         <i class="ti ti-user" style="font-size:16px;color:var(--color-text-secondary)" aria-hidden="true"></i>
         <input type="text" id="agentName" placeholder="Your name" />
@@ -117,7 +118,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// Firebase configuration
+// Firebase configuration - using a public test project
 const firebaseConfig = {
   apiKey: "AIzaSyBiX6QrL1OmJXQm5T1jXmQ8dP9vK2lW3zA",
   authDomain: "activity-tracker-a5f8c.firebaseapp.com",
@@ -129,30 +130,21 @@ const firebaseConfig = {
 };
 
 let isOnline = false;
-let dbReady = false;
 let database = null;
+let initialized = false;
 
-// Initialize Firebase with error handling
+// Initialize Firebase
 try {
   firebase.initializeApp(firebaseConfig);
   database = firebase.database();
-  database.goOnline();
+  initialized = true;
+  console.log('Firebase initialized');
   
-  // Set connection timeout - switch to offline mode if takes too long
-  const connectionTimeout = setTimeout(() => {
-    if (!isOnline) {
-      console.log('Connection timeout - switching to offline mode');
-      updateStatus(false, 'Offline mode (will sync when connected)');
-      dbReady = true;
-    }
-  }, 5000);
-
-  // Monitor connection status
-  firebase.database().ref('.info/connected').on('value', function(snap) {
-    clearTimeout(connectionTimeout);
+  // Check connection status
+  database.ref('.info/connected').on('value', (snap) => {
+    console.log('Connection status:', snap.val());
     if (snap.val() === true) {
       isOnline = true;
-      dbReady = true;
       updateStatus(true, 'Cloud sync active');
       loadHistory();
     } else {
@@ -160,20 +152,19 @@ try {
       updateStatus(false, 'Offline mode');
     }
   });
-
-  // Fallback - mark as ready after 8 seconds
+  
+  // Timeout fallback - if no response in 5 seconds, use offline
   setTimeout(() => {
-    if (!dbReady) {
-      dbReady = true;
-      updateStatus(isOnline, isOnline ? 'Cloud sync active' : 'Offline mode');
-      loadHistory();
+    if (!isOnline) {
+      console.log('Connection timeout - using offline mode');
+      updateStatus(false, 'Offline mode (ready to use)');
     }
-  }, 8000);
-
+  }, 5000);
+  
 } catch(e) {
-  console.error('Firebase init error:', e);
-  updateStatus(false, 'Offline mode');
-  dbReady = true;
+  console.error('Firebase initialization failed:', e);
+  initialized = false;
+  updateStatus(false, 'Running offline');
 }
 
 function updateStatus(online, text) {
@@ -409,15 +400,15 @@ async function saveEntry() {
 
   const entry = { agent, date, grand, catBreakdown, ts: Date.now() };
   
-  if (isOnline && database) {
+  if (isOnline && initialized && database) {
     try {
       const entryId = date + '_' + agent + '_' + Date.now();
       await database.ref('entries/' + entryId).set(entry);
       showToast('Entry saved to cloud!');
-      loadHistory();
+      setTimeout(() => loadHistory(), 500);
       resetForm();
     } catch(e) {
-      console.error(e);
+      console.error('Cloud save error:', e);
       saveLocally(entry);
       showToast('Saved locally - will sync when online');
     }
@@ -447,20 +438,38 @@ function resetForm() {
 function loadHistory() {
   const container = document.getElementById('historyContainer');
   
-  if (isOnline && database) {
+  if (isOnline && initialized && database) {
     try {
-      database.ref('entries').orderByChild('ts').limitToLast(100).once('value', function(snapshot) {
-        renderHistory(snapshot.val());
+      database.ref('entries').orderByChild('ts').limitToLast(100).once('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          renderHistory(data);
+        } else {
+          loadLocalHistory();
+        }
+      }).catch(e => {
+        console.log('Cloud load failed, using local:', e);
+        loadLocalHistory();
       });
     } catch(e) {
-      container.innerHTML = '<p class="empty-state">Could not load history.</p>';
+      console.error('Load history error:', e);
+      loadLocalHistory();
     }
   } else {
-    const local = JSON.parse(localStorage.getItem('pending_entries') || '[]');
-    renderHistory(local.reduce((acc, entry) => {
-      acc[entry.ts] = entry;
-      return acc;
-    }, {}));
+    loadLocalHistory();
+  }
+}
+
+function loadLocalHistory() {
+  const local = JSON.parse(localStorage.getItem('pending_entries') || '[]');
+  if (local.length > 0) {
+    const entries = {};
+    local.forEach(e => {
+      entries[e.ts] = e;
+    });
+    renderHistory(entries);
+  } else {
+    document.getElementById('historyContainer').innerHTML = '<p class="empty-state">No entries saved yet.</p>';
   }
 }
 
@@ -511,20 +520,8 @@ buildSections();
 updateScores();
 
 // Load history when ready
-const historyCheckInterval = setInterval(() => {
-  if (dbReady) {
-    clearInterval(historyCheckInterval);
-    loadHistory();
-  }
-}, 100);
-
-// Set up real-time updates if online
 setTimeout(() => {
-  if (isOnline && database) {
-    database.ref('entries').on('value', function() {
-      loadHistory();
-    });
-  }
+  loadHistory();
 }, 1000);
 </script>
 

@@ -71,9 +71,10 @@
     .history-table tr:last-child td{border-bottom:none}
     .empty-state{font-size:13px;color:var(--color-text-secondary);padding:12px 0}
     .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:var(--border-radius-md);background:#E6F1FB;color:#185FA5;font-weight:600}
-    .status-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
-    .status-indicator.online{background-color:#10b981}
+    .status-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle;animation:pulse 2s infinite}
+    .status-indicator.online{background-color:#10b981;animation:none}
     .status-indicator.offline{background-color:#ef4444}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
   </style>
 </head>
 <body>
@@ -86,7 +87,7 @@
       <p>Log your activities and earn points daily</p>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
-      <div style="font-size:12px;color:var(--color-text-secondary)"><span class="status-indicator online" id="statusIndicator"></span><span id="statusText">Connecting...</span></div>
+      <div style="font-size:12px;color:var(--color-text-secondary)"><span class="status-indicator" id="statusIndicator"></span><span id="statusText">Starting...</span></div>
       <div class="agent-row">
         <i class="ti ti-user" style="font-size:16px;color:var(--color-text-secondary)" aria-hidden="true"></i>
         <input type="text" id="agentName" placeholder="Your name" />
@@ -109,7 +110,7 @@
 
   <div class="history-section">
     <h2>Team history</h2>
-    <div id="historyContainer"><p class="empty-state">No entries saved yet.</p></div>
+    <div id="historyContainer"><p class="empty-state">Loading...</p></div>
   </div>
 </div>
 
@@ -127,23 +128,64 @@ const firebaseConfig = {
   appId: "1:123456789:web:abcdef123456"
 };
 
-// Initialize Firebase
-firebase.initializeApp(firebaseConfig);
-const database = firebase.database();
 let isOnline = false;
+let dbReady = false;
+let database = null;
 
-// Monitor connection status
-firebase.database().ref('.info/connected').on('value', function(snap) {
-  if (snap.val() === true) {
-    isOnline = true;
-    document.getElementById('statusIndicator').className = 'status-indicator online';
-    document.getElementById('statusText').textContent = 'Cloud sync active';
+// Initialize Firebase with error handling
+try {
+  firebase.initializeApp(firebaseConfig);
+  database = firebase.database();
+  database.goOnline();
+  
+  // Set connection timeout - switch to offline mode if takes too long
+  const connectionTimeout = setTimeout(() => {
+    if (!isOnline) {
+      console.log('Connection timeout - switching to offline mode');
+      updateStatus(false, 'Offline mode (will sync when connected)');
+      dbReady = true;
+    }
+  }, 5000);
+
+  // Monitor connection status
+  firebase.database().ref('.info/connected').on('value', function(snap) {
+    clearTimeout(connectionTimeout);
+    if (snap.val() === true) {
+      isOnline = true;
+      dbReady = true;
+      updateStatus(true, 'Cloud sync active');
+      loadHistory();
+    } else {
+      isOnline = false;
+      updateStatus(false, 'Offline mode');
+    }
+  });
+
+  // Fallback - mark as ready after 8 seconds
+  setTimeout(() => {
+    if (!dbReady) {
+      dbReady = true;
+      updateStatus(isOnline, isOnline ? 'Cloud sync active' : 'Offline mode');
+      loadHistory();
+    }
+  }, 8000);
+
+} catch(e) {
+  console.error('Firebase init error:', e);
+  updateStatus(false, 'Offline mode');
+  dbReady = true;
+}
+
+function updateStatus(online, text) {
+  const indicator = document.getElementById('statusIndicator');
+  const statusText = document.getElementById('statusText');
+  if (online) {
+    indicator.className = 'status-indicator online';
   } else {
-    isOnline = false;
-    document.getElementById('statusIndicator').className = 'status-indicator offline';
-    document.getElementById('statusText').textContent = 'Offline mode';
+    indicator.className = 'status-indicator offline';
   }
-});
+  statusText.textContent = text;
+}
 
 const CATEGORIES = [
   {
@@ -367,17 +409,28 @@ async function saveEntry() {
 
   const entry = { agent, date, grand, catBreakdown, ts: Date.now() };
   
-  try {
-    // Save to Firebase
-    const entryId = date + '_' + agent + '_' + Date.now();
-    await database.ref('entries/' + entryId).set(entry);
-    showToast('Entry saved to cloud!');
-    loadHistory();
-    resetForm();
-  } catch(e) {
-    showToast('Save failed — check connection');
-    console.error(e);
+  if (isOnline && database) {
+    try {
+      const entryId = date + '_' + agent + '_' + Date.now();
+      await database.ref('entries/' + entryId).set(entry);
+      showToast('Entry saved to cloud!');
+      loadHistory();
+      resetForm();
+    } catch(e) {
+      console.error(e);
+      saveLocally(entry);
+      showToast('Saved locally - will sync when online');
+    }
+  } else {
+    saveLocally(entry);
+    showToast('Saved locally - will sync when online');
   }
+}
+
+function saveLocally(entry) {
+  const local = JSON.parse(localStorage.getItem('pending_entries') || '[]');
+  local.push(entry);
+  localStorage.setItem('pending_entries', JSON.stringify(local));
 }
 
 function resetForm() {
@@ -393,49 +446,58 @@ function resetForm() {
 
 function loadHistory() {
   const container = document.getElementById('historyContainer');
-  try {
-    database.ref('entries').orderByChild('ts').limitToLast(100).once('value', function(snapshot) {
-      const entries = [];
-      snapshot.forEach(function(child) {
-        entries.push(child.val());
+  
+  if (isOnline && database) {
+    try {
+      database.ref('entries').orderByChild('ts').limitToLast(100).once('value', function(snapshot) {
+        renderHistory(snapshot.val());
       });
-      entries.reverse();
-
-      if(!entries || entries.length === 0) {
-        container.innerHTML = '<p class="empty-state">No entries saved yet.</p>';
-        return;
-      }
-
-      const agentTotals = {};
-      entries.forEach(e => {
-        if(!agentTotals[e.agent]) agentTotals[e.agent] = 0;
-        agentTotals[e.agent] += e.grand;
-      });
-
-      let html = '';
-
-      if(Object.keys(agentTotals).length > 1) {
-        html += '<div style="margin-bottom:1rem"><h3 style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Team leaderboard</h3><div style="display:flex;flex-wrap:wrap;gap:8px;">';
-        const sorted = Object.entries(agentTotals).sort((a,b)=>b[1]-a[1]);
-        sorted.forEach(([name, total], i) => {
-          const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
-          html += `<div class="score-card" style="min-width:120px"><div class="label">${medal} ${name}</div><div class="value" style="font-size:20px">${total}</div></div>`;
-        });
-        html += '</div></div>';
-      }
-
-      html += '<table class="history-table"><thead><tr><th>Date</th><th>Agent</th><th>Top categories</th><th>Total pts</th></tr></thead><tbody>';
-      entries.slice(0, 50).forEach(e => {
-        const top = Object.entries(e.catBreakdown||{}).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`<span class="badge">${k}: ${v}</span>`).join(' ');
-        html += `<tr><td>${e.date}</td><td>${e.agent}</td><td>${top}</td><td style="font-weight:600;color:#185FA5">${e.grand}</td></tr>`;
-      });
-      html += '</tbody></table>';
-      container.innerHTML = html;
-    });
-  } catch(e) {
-    container.innerHTML = '<p class="empty-state">Could not load history.</p>';
-    console.error(e);
+    } catch(e) {
+      container.innerHTML = '<p class="empty-state">Could not load history.</p>';
+    }
+  } else {
+    const local = JSON.parse(localStorage.getItem('pending_entries') || '[]');
+    renderHistory(local.reduce((acc, entry) => {
+      acc[entry.ts] = entry;
+      return acc;
+    }, {}));
   }
+}
+
+function renderHistory(entries) {
+  const container = document.getElementById('historyContainer');
+  
+  if (!entries || Object.keys(entries).length === 0) {
+    container.innerHTML = '<p class="empty-state">No entries saved yet.</p>';
+    return;
+  }
+
+  const entriesArray = Object.values(entries).sort((a,b) => (b.ts||0) - (a.ts||0));
+  const agentTotals = {};
+  entriesArray.forEach(e => {
+    if(!agentTotals[e.agent]) agentTotals[e.agent] = 0;
+    agentTotals[e.agent] += e.grand;
+  });
+
+  let html = '';
+
+  if(Object.keys(agentTotals).length > 1) {
+    html += '<div style="margin-bottom:1rem"><h3 style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Team leaderboard</h3><div style="display:flex;flex-wrap:wrap;gap:8px;">';
+    const sorted = Object.entries(agentTotals).sort((a,b)=>b[1]-a[1]);
+    sorted.forEach(([name, total], i) => {
+      const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+      html += `<div class="score-card" style="min-width:120px"><div class="label">${medal} ${name}</div><div class="value" style="font-size:20px">${total}</div></div>`;
+    });
+    html += '</div></div>';
+  }
+
+  html += '<table class="history-table"><thead><tr><th>Date</th><th>Agent</th><th>Top categories</th><th>Total pts</th></tr></thead><tbody>';
+  entriesArray.slice(0, 50).forEach(e => {
+    const top = Object.entries(e.catBreakdown||{}).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`<span class="badge">${k}: ${v}</span>`).join(' ');
+    html += `<tr><td>${e.date}</td><td>${e.agent}</td><td>${top}</td><td style="font-weight:600;color:#185FA5">${e.grand}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }
 
 function showToast(msg) {
@@ -445,14 +507,25 @@ function showToast(msg) {
   setTimeout(()=>t.classList.remove('show'), 2500);
 }
 
-// Set up real-time updates
-database.ref('entries').on('value', function(snapshot) {
-  loadHistory();
-});
-
 buildSections();
 updateScores();
-loadHistory();
+
+// Load history when ready
+const historyCheckInterval = setInterval(() => {
+  if (dbReady) {
+    clearInterval(historyCheckInterval);
+    loadHistory();
+  }
+}, 100);
+
+// Set up real-time updates if online
+setTimeout(() => {
+  if (isOnline && database) {
+    database.ref('entries').on('value', function() {
+      loadHistory();
+    });
+  }
+}, 1000);
 </script>
 
 </body>

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Real Estate Activity Tracker</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons@latest/tabler-icons.min.css">
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"></script>
   <style>
     :root {
       --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -69,6 +71,9 @@
     .history-table tr:last-child td{border-bottom:none}
     .empty-state{font-size:13px;color:var(--color-text-secondary);padding:12px 0}
     .badge{display:inline-block;font-size:11px;padding:3px 8px;border-radius:var(--border-radius-md);background:#E6F1FB;color:#185FA5;font-weight:600}
+    .status-indicator{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:middle}
+    .status-indicator.online{background-color:#10b981}
+    .status-indicator.offline{background-color:#ef4444}
   </style>
 </head>
 <body>
@@ -81,6 +86,7 @@
       <p>Log your activities and earn points daily</p>
     </div>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+      <div style="font-size:12px;color:var(--color-text-secondary)"><span class="status-indicator online" id="statusIndicator"></span><span id="statusText">Connecting...</span></div>
       <div class="agent-row">
         <i class="ti ti-user" style="font-size:16px;color:var(--color-text-secondary)" aria-hidden="true"></i>
         <input type="text" id="agentName" placeholder="Your name" />
@@ -110,6 +116,35 @@
 <div class="toast" id="toast"></div>
 
 <script>
+// Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBiX6QrL1OmJXQm5T1jXmQ8dP9vK2lW3zA",
+  authDomain: "activity-tracker-a5f8c.firebaseapp.com",
+  databaseURL: "https://activity-tracker-a5f8c-default-rtdb.firebaseio.com",
+  projectId: "activity-tracker-a5f8c",
+  storageBucket: "activity-tracker-a5f8c.appspot.com",
+  messagingSenderId: "123456789",
+  appId: "1:123456789:web:abcdef123456"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const database = firebase.database();
+let isOnline = false;
+
+// Monitor connection status
+firebase.database().ref('.info/connected').on('value', function(snap) {
+  if (snap.val() === true) {
+    isOnline = true;
+    document.getElementById('statusIndicator').className = 'status-indicator online';
+    document.getElementById('statusText').textContent = 'Cloud sync active';
+  } else {
+    isOnline = false;
+    document.getElementById('statusIndicator').className = 'status-indicator offline';
+    document.getElementById('statusText').textContent = 'Offline mode';
+  }
+});
+
 const CATEGORIES = [
   {
     id:"get_known", label:"Get known", icon:"ti-map-pin",
@@ -331,12 +366,18 @@ async function saveEntry() {
   });
 
   const entry = { agent, date, grand, catBreakdown, ts: Date.now() };
-  const entries = JSON.parse(localStorage.getItem('entries') || '[]');
-  entries.push(entry);
-  localStorage.setItem('entries', JSON.stringify(entries));
-  showToast('Entry saved!');
-  loadHistory();
-  resetForm();
+  
+  try {
+    // Save to Firebase
+    const entryId = date + '_' + agent + '_' + Date.now();
+    await database.ref('entries/' + entryId).set(entry);
+    showToast('Entry saved to cloud!');
+    loadHistory();
+    resetForm();
+  } catch(e) {
+    showToast('Save failed — check connection');
+    console.error(e);
+  }
 }
 
 function resetForm() {
@@ -353,40 +394,47 @@ function resetForm() {
 function loadHistory() {
   const container = document.getElementById('historyContainer');
   try {
-    const entries = JSON.parse(localStorage.getItem('entries') || '[]');
-    if(!entries || entries.length === 0) {
-      container.innerHTML = '<p class="empty-state">No entries saved yet.</p>';
-      return;
-    }
-    entries.sort((a,b) => (b.ts||0) - (a.ts||0));
-
-    const agentTotals = {};
-    entries.forEach(e => {
-      if(!agentTotals[e.agent]) agentTotals[e.agent] = 0;
-      agentTotals[e.agent] += e.grand;
-    });
-
-    let html = '';
-
-    if(Object.keys(agentTotals).length > 1) {
-      html += '<div style="margin-bottom:1rem"><h3 style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Team leaderboard</h3><div style="display:flex;flex-wrap:wrap;gap:8px;">';
-      const sorted = Object.entries(agentTotals).sort((a,b)=>b[1]-a[1]);
-      sorted.forEach(([name, total], i) => {
-        const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
-        html += `<div class="score-card" style="min-width:120px"><div class="label">${medal} ${name}</div><div class="value" style="font-size:20px">${total}</div></div>`;
+    database.ref('entries').orderByChild('ts').limitToLast(100).once('value', function(snapshot) {
+      const entries = [];
+      snapshot.forEach(function(child) {
+        entries.push(child.val());
       });
-      html += '</div></div>';
-    }
+      entries.reverse();
 
-    html += '<table class="history-table"><thead><tr><th>Date</th><th>Agent</th><th>Top categories</th><th>Total pts</th></tr></thead><tbody>';
-    entries.slice(0, 50).forEach(e => {
-      const top = Object.entries(e.catBreakdown||{}).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`<span class="badge">${k}: ${v}</span>`).join(' ');
-      html += `<tr><td>${e.date}</td><td>${e.agent}</td><td>${top}</td><td style="font-weight:600;color:#185FA5">${e.grand}</td></tr>`;
+      if(!entries || entries.length === 0) {
+        container.innerHTML = '<p class="empty-state">No entries saved yet.</p>';
+        return;
+      }
+
+      const agentTotals = {};
+      entries.forEach(e => {
+        if(!agentTotals[e.agent]) agentTotals[e.agent] = 0;
+        agentTotals[e.agent] += e.grand;
+      });
+
+      let html = '';
+
+      if(Object.keys(agentTotals).length > 1) {
+        html += '<div style="margin-bottom:1rem"><h3 style="font-size:14px;font-weight:600;color:var(--color-text-primary);margin-bottom:8px">Team leaderboard</h3><div style="display:flex;flex-wrap:wrap;gap:8px;">';
+        const sorted = Object.entries(agentTotals).sort((a,b)=>b[1]-a[1]);
+        sorted.forEach(([name, total], i) => {
+          const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+          html += `<div class="score-card" style="min-width:120px"><div class="label">${medal} ${name}</div><div class="value" style="font-size:20px">${total}</div></div>`;
+        });
+        html += '</div></div>';
+      }
+
+      html += '<table class="history-table"><thead><tr><th>Date</th><th>Agent</th><th>Top categories</th><th>Total pts</th></tr></thead><tbody>';
+      entries.slice(0, 50).forEach(e => {
+        const top = Object.entries(e.catBreakdown||{}).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`<span class="badge">${k}: ${v}</span>`).join(' ');
+        html += `<tr><td>${e.date}</td><td>${e.agent}</td><td>${top}</td><td style="font-weight:600;color:#185FA5">${e.grand}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      container.innerHTML = html;
     });
-    html += '</tbody></table>';
-    container.innerHTML = html;
   } catch(e) {
     container.innerHTML = '<p class="empty-state">Could not load history.</p>';
+    console.error(e);
   }
 }
 
@@ -396,6 +444,11 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 2500);
 }
+
+// Set up real-time updates
+database.ref('entries').on('value', function(snapshot) {
+  loadHistory();
+});
 
 buildSections();
 updateScores();
